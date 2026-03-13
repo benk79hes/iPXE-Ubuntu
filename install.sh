@@ -19,6 +19,7 @@
 #   --dhcp-end   192.168.100.200
 # =============================================================================
 set -euo pipefail
+set -E   # ERR trap is inherited by shell functions
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -73,6 +74,16 @@ die() {
 require_root() {
   [[ $EUID -eq 0 ]] || die "This script must be run as root (use sudo)."
 }
+
+# Trap any non-zero exit caused by set -e and report where it happened.
+_on_error() {
+  local line="${1:-?}" exit_code="${2:-?}"
+  log "ERROR: Unexpected failure at line ${line} (exit code ${exit_code})."
+  log "       Failed command: ${BASH_COMMAND}"
+  log "       Fix the error above and re-run:"
+  log "         sudo bash $(basename "$0") --wan ${WAN_IFACE} --lan ${LAN_IFACE}"
+}
+trap 'rc=$?; _on_error $LINENO $rc' ERR
 
 # ---------------------------------------------------------------------------
 # 1. Pre-flight checks
@@ -141,7 +152,10 @@ NETPLAN
     log "WARNING: Could not enable/start systemd-networkd — netplan may fall back to a hard restart."
   fi
 
-  netplan apply
+  log "Applying netplan configuration…"
+  # set -o pipefail is active; the pipeline exits with netplan's status.
+  netplan apply 2>&1 | tee -a "$LOG_FILE" \
+    || die "netplan apply failed — check the output above and fix your netplan configuration."
 
   # Wait for the LAN interface to acquire the configured IP address (up to 15 s)
   local max_wait=15 elapsed=0
