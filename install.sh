@@ -164,7 +164,7 @@ NETPLAN
       die "${LAN_IFACE} did not acquire IP ${LAN_IP} within ${max_wait}s. Check netplan configuration."
     fi
     sleep 1
-    (( elapsed++ ))
+    elapsed=$(( elapsed + 1 ))
   done
 
   log "Netplan applied: ${LAN_IFACE} set to ${LAN_CIDR}"
