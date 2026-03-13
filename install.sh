@@ -233,6 +233,48 @@ configure_dnsmasq() {
     sleep 2
   fi
 
+  # Stop and disable any standalone TFTP server that would conflict with dnsmasq's
+  # built-in TFTP on port 69 (tftpd-hpa, atftpd, tftpd via inetd/xinetd, etc.).
+  for _tftp_svc in tftpd-hpa atftpd; do
+    if systemctl is-active --quiet "${_tftp_svc}" 2>/dev/null \
+        || systemctl is-enabled --quiet "${_tftp_svc}" 2>/dev/null; then
+      log "Stopping and disabling conflicting TFTP service: ${_tftp_svc}"
+      systemctl stop    "${_tftp_svc}" 2>/dev/null || true
+      systemctl disable "${_tftp_svc}" 2>/dev/null || true
+    fi
+  done
+  # Also disable TFTP via inetd / xinetd if present.
+  if systemctl is-active --quiet inetd 2>/dev/null; then
+    if grep -qE '^tftp' /etc/inetd.conf 2>/dev/null; then
+      log "Disabling TFTP in inetd (/etc/inetd.conf)…"
+      sed -i 's/^\(tftp\)/#\1/' /etc/inetd.conf
+      systemctl reload inetd 2>/dev/null || true
+    fi
+  fi
+  if systemctl is-active --quiet xinetd 2>/dev/null; then
+    if [[ -f /etc/xinetd.d/tftp ]]; then
+      log "Disabling TFTP in xinetd (/etc/xinetd.d/tftp)…"
+      sed -i 's/disable[[:space:]]*=[[:space:]]*no/disable = yes/' /etc/xinetd.d/tftp
+      systemctl reload xinetd 2>/dev/null || true
+    fi
+  fi
+
+  # Wait up to 15 s for port 69 (TFTP) to become free.
+  local tftp_max_wait=15 tftp_elapsed=0
+  while ss -ulnH 2>/dev/null | awk '{print $5}' | grep -qE ':69$'; do
+    if [[ $tftp_elapsed -ge $tftp_max_wait ]]; then
+      log "WARNING: Port 69 still occupied after ${tftp_max_wait}s — force-freeing it…"
+      while IFS= read -r _pid; do
+        [[ -n "$_pid" && "$_pid" != "$$" ]] && kill "$_pid" 2>/dev/null || true
+      done < <(ss -ulnpH 2>/dev/null | grep -E ':69[[:space:]]' \
+                 | grep -oP 'pid=\K[0-9]+' | sort -u)
+      sleep 1
+      break
+    fi
+    sleep 1
+    tftp_elapsed=$(( tftp_elapsed + 1 ))
+  done
+
   # Stop any running dnsmasq before rewriting its configuration.
   # (apt install auto-starts dnsmasq with default settings; we must stop it first.)
   systemctl stop dnsmasq 2>/dev/null || true
