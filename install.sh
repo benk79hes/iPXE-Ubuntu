@@ -228,10 +228,34 @@ configure_dnsmasq() {
     printf '[Resolve]\nDNSStubListener=no\n' \
       > /etc/systemd/resolved.conf.d/no-dnsstub.conf
     systemctl restart systemd-resolved
+    # Give systemd-resolved at least 2 s to fully tear down its stub listener
+    # on 127.0.0.53 and release port 53 before dnsmasq tries to claim it.
+    sleep 2
   fi
 
-  # Stop any running dnsmasq before rewriting its configuration
+  # Stop any running dnsmasq before rewriting its configuration.
+  # (apt install auto-starts dnsmasq with default settings; we must stop it first.)
   systemctl stop dnsmasq 2>/dev/null || true
+
+  # Wait up to 15 s for port 53 to become free on both UDP and TCP.
+  # Sockets can linger briefly after a service stops, causing "Address already in use".
+  # `ss -tlunH` lists all TCP+UDP listening sockets without a header; column 5 is
+  # the local address:port.  We match the trailing ":53" to catch any bound address.
+  local max_wait=15 elapsed=0
+  while ss -tlunH 2>/dev/null | awk '{print $5}' | grep -qE ':53$'; do
+    if [[ $elapsed -ge $max_wait ]]; then
+      log "WARNING: Port 53 still occupied after ${max_wait}s — force-freeing it…"
+      # Kill every process (except this script) that is still holding port 53.
+      while IFS= read -r _pid; do
+        [[ -n "$_pid" && "$_pid" != "$$" ]] && kill "$_pid" 2>/dev/null || true
+      done < <(ss -tlunpH 2>/dev/null | grep -E ':53[[:space:]]' \
+                 | grep -oP 'pid=\K[0-9]+' | sort -u)
+      sleep 1
+      break
+    fi
+    sleep 1
+    elapsed=$(( elapsed + 1 ))
+  done
 
   cat > /etc/dnsmasq.d/ipxe.conf <<DNSMASQ
 # iPXE server — managed by iPXE installer
