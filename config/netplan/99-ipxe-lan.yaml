@@ -1,0 +1,12 @@
+# =============================================================================
+# Netplan template — LAN interface static IP
+# Template — actual file is written by install.sh to
+#            /etc/netplan/99-ipxe-lan.yaml
+# =============================================================================
+network:
+  version: 2
+  ethernets:
+    <LAN_IFACE>:
+      addresses:
+        - <LAN_CIDR>    # e.g. 192.168.100.1/24
+      dhcp4: false

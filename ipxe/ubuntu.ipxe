@@ -1,0 +1,43 @@
+#!ipxe
+# =============================================================================
+# Ubuntu autoinstall / subiquity netboot
+# =============================================================================
+# This script boots the Ubuntu 24.04 LTS (Noble Numbat) network installer.
+# Adjust the UBUNTU_RELEASE and UBUNTU_MIRROR variables for other releases.
+# =============================================================================
+
+set UBUNTU_RELEASE  noble
+set UBUNTU_CODENAME 24.04
+set UBUNTU_MIRROR   http://archive.ubuntu.com/ubuntu/dists/${UBUNTU_RELEASE}/main/installer-amd64/current/legacy-images/netboot/ubuntu-installer/amd64
+
+# ---------------------------------------------------------------------------
+# If the server has a local mirror under /ubuntu/ serve from there
+# (set LOCAL_HTTP to the base URL of the iPXE HTTP server)
+# ---------------------------------------------------------------------------
+set LOCAL_HTTP http://${next-server}
+
+echo Booting Ubuntu ${UBUNTU_CODENAME} LTS (${UBUNTU_RELEASE})…
+echo Mirror: ${UBUNTU_MIRROR}
+
+# NOTE: Adjust keyboard-configuration/xkb-keymap and locale to match your
+# environment (e.g. en for English, fr for French, de for German, etc.).
+kernel ${UBUNTU_MIRROR}/linux  \
+    auto=true                  \
+    priority=critical          \
+    locale=en_US               \
+    keyboard-configuration/xkb-keymap=us \
+    netcfg/get_nameservers=8.8.8.8 \
+    netcfg/get_gateway=${next-server} \
+    url=${LOCAL_HTTP}/ubuntu/preseed.cfg \
+    initrd=initrd.gz           \
+    quiet
+
+initrd ${UBUNTU_MIRROR}/initrd.gz
+
+boot || goto failed
+
+:failed
+echo
+echo Failed to boot Ubuntu installer.
+echo Press any key to return to menu…
+prompt --key 0x08 --timeout 5000 Retry? && chain http://${next-server}/boot.ipxe
