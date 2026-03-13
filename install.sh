@@ -133,8 +133,26 @@ network:
       dhcp4: false
 NETPLAN
 
-  chmod 600 "$netplan_file"
+  # Fix permissions on all netplan files (including any pre-existing ones)
+  find /etc/netplan -name "*.yaml" -exec chmod 600 {} \;
+
+  # Ensure systemd-networkd is running so netplan apply can configure the interface
+  if ! systemctl enable --now systemd-networkd 2>/dev/null; then
+    log "WARNING: Could not enable/start systemd-networkd — netplan may fall back to a hard restart."
+  fi
+
   netplan apply
+
+  # Wait for the LAN interface to acquire the configured IP address (up to 15 s)
+  local max_wait=15 elapsed=0
+  while ! ip addr show "${LAN_IFACE}" 2>/dev/null | grep -q "${LAN_IP}"; do
+    if [[ $elapsed -ge $max_wait ]]; then
+      die "${LAN_IFACE} did not acquire IP ${LAN_IP} within ${max_wait}s. Check netplan configuration."
+    fi
+    sleep 1
+    (( elapsed++ ))
+  done
+
   log "Netplan applied: ${LAN_IFACE} set to ${LAN_CIDR}"
 }
 
@@ -189,14 +207,24 @@ configure_dnsmasq() {
   install -m 644 "${REPO_DIR}/ipxe/boot.ipxe"   "${tftp_root}/boot.ipxe"
   install -m 644 "${REPO_DIR}/ipxe/ubuntu.ipxe" "${tftp_root}/ubuntu.ipxe"
 
-  # Disable the default dnsmasq config
+  # Disable the systemd-resolved DNS stub listener so dnsmasq can own port 53
+  # on the LAN interface without conflicts.
+  if systemctl is-active --quiet systemd-resolved; then
+    mkdir -p /etc/systemd/resolved.conf.d
+    printf '[Resolve]\nDNSStubListener=no\n' \
+      > /etc/systemd/resolved.conf.d/no-dnsstub.conf
+    systemctl restart systemd-resolved
+  fi
+
+  # Stop any running dnsmasq before rewriting its configuration
   systemctl stop dnsmasq 2>/dev/null || true
 
   cat > /etc/dnsmasq.d/ipxe.conf <<DNSMASQ
 # iPXE server — managed by iPXE installer
 
-# Listen only on the isolated LAN interface
+# Listen only on the isolated LAN interface; never on loopback
 interface=${LAN_IFACE}
+except-interface=lo
 bind-interfaces
 
 # Do not use /etc/resolv.conf for upstream DNS; forward to public resolvers
@@ -229,7 +257,12 @@ dhcp-userclass=set:ipxe,iPXE
 dhcp-boot=tag:ipxe,http://${LAN_IP}/boot.ipxe
 DNSMASQ
 
-  systemctl enable --now dnsmasq
+  systemctl enable dnsmasq
+  if ! systemctl restart dnsmasq; then
+    log "ERROR: dnsmasq failed to start — check: journalctl -xeu dnsmasq.service"
+    journalctl -xeu dnsmasq.service --no-pager -n 30 | tee -a "$LOG_FILE" || true
+    die "dnsmasq could not be started. See log above."
+  fi
   log "dnsmasq configured and started"
 }
 
