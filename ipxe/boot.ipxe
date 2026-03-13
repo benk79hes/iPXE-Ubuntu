@@ -1,0 +1,42 @@
+#!ipxe
+# =============================================================================
+# Main iPXE boot menu
+# Served via HTTP from the iPXE server: http://<LAN_IP>/boot.ipxe
+# =============================================================================
+
+# Set a timeout for the menu (in milliseconds, 0 = wait forever)
+set menu-timeout 30000
+set menu-default ubuntu-autoinstall
+
+:start
+menu iPXE Boot Menu — $(hostname)
+item --gap             -- Operating Systems --
+item ubuntu-autoinstall  Install Ubuntu (latest LTS, autoinstall)
+item ubuntu-live         Boot Ubuntu Live (desktop ISO)
+item --gap
+item --gap             -- Utilities --
+item shell               iPXE shell
+item reboot              Reboot
+item --gap
+choose --timeout ${menu-timeout} --default ${menu-default} target || goto reboot
+
+goto ${target}
+
+:ubuntu-autoinstall
+  chain http://${next-server}/ubuntu.ipxe ||
+  echo Failed to load ubuntu.ipxe
+  sleep 5
+  goto start
+
+:ubuntu-live
+  echo Ubuntu Live not yet configured — returning to menu
+  sleep 3
+  goto start
+
+:shell
+  echo Type 'exit' to return to the menu
+  shell
+  goto start
+
+:reboot
+  reboot

@@ -1,0 +1,11 @@
+# =============================================================================
+# iptables rules template — NAT / gateway
+# Template — actual rules are written by install.sh to /etc/iptables/rules.v4
+# =============================================================================
+
+# Allow forwarding from LAN to WAN
+# -A FORWARD -i <LAN_IFACE> -o <WAN_IFACE> -j ACCEPT
+# -A FORWARD -i <WAN_IFACE> -o <LAN_IFACE> -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Masquerade LAN traffic on the WAN interface (NAT)
+# -t nat -A POSTROUTING -s <LAN_CIDR> -o <WAN_IFACE> -j MASQUERADE
