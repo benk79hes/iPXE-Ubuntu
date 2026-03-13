@@ -109,6 +109,7 @@ Configure their BIOS/UEFI to boot from the network (PXE). They will:
 iPXE-Ubuntu/
 ├── install.sh               # Main installer — run this
 ├── uninstall.sh             # Removes all installed config
+├── check.sh                 # Post-install health check — run after install.sh
 ├── ipxe/
 │   ├── boot.ipxe            # iPXE boot menu script
 │   └── ubuntu.ipxe          # Ubuntu netboot script
@@ -163,6 +164,38 @@ After editing, re-deploy to the HTTP root:
 sudo cp ipxe/boot.ipxe   /srv/ipxe/boot.ipxe
 sudo cp ipxe/ubuntu.ipxe /srv/ipxe/ubuntu.ipxe
 ```
+
+---
+
+## Verify the Installation
+
+After running the installer, use `check.sh` to confirm that all services, files,
+and network settings are in place:
+
+```bash
+sudo bash check.sh
+```
+
+Pass the same flags you used for `install.sh` if you changed the defaults:
+
+```bash
+sudo bash check.sh --wan ens3 --lan ens4 --lan-ip 192.168.100.1/24
+```
+
+The script checks:
+
+| Check | What is verified |
+|-------|-----------------|
+| Services | `dnsmasq` and `nginx` are running and enabled |
+| Config files | `/etc/dnsmasq.d/ipxe.conf`, nginx site, netplan file |
+| Deployed files | iPXE scripts in `/srv/tftp/` and `/srv/ipxe/`, boot binaries |
+| Network | LAN interface exists and has the expected IP |
+| IP forwarding / NAT | `ip_forward=1`, iptables MASQUERADE and FORWARD rules |
+| Ports | UDP 69 (TFTP) and TCP 80 (HTTP) are listening |
+| nginx syntax | `nginx -t` passes |
+
+A green `[PASS]` / red `[FAIL]` result is printed for each item.  
+The script exits with code `0` when all checks pass, or `1` if any fail.
 
 ---
 
